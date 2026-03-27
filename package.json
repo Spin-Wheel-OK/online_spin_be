@@ -1,0 +1,22 @@
+{
+  "name": "spin-wheel-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node dist/src/server.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.0",
+    "mongoose": "^8.13.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.3"
+  }
+}
