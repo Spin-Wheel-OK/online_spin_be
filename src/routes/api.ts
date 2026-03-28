@@ -215,26 +215,11 @@ export default async function apiRoutes(fastify: FastifyInstance) {
       const winnerIndex = Math.floor(Math.random() * participants.length);
       const winner = participants[winnerIndex];
 
-      // Build wheel segments (max 30, must include winner)
-      const MAX_WHEEL = 30;
-      const wheelSize = Math.min(MAX_WHEEL, participants.length);
-      let wheelSegments: { id: string; name: string }[];
-      let winnerWheelIndex: number;
-
-      if (participants.length <= MAX_WHEEL) {
-        wheelSegments = participants.map(p => ({ id: p.id!, name: p.name }));
-        winnerWheelIndex = winnerIndex;
-      } else {
-        // Pick random subset including winner
-        const indices = new Set<number>();
-        indices.add(winnerIndex);
-        while (indices.size < wheelSize) {
-          indices.add(Math.floor(Math.random() * participants.length));
-        }
-        const sortedIndices = Array.from(indices).sort((a, b) => a - b);
-        wheelSegments = sortedIndices.map(i => ({ id: participants[i].id!, name: participants[i].name }));
-        winnerWheelIndex = sortedIndices.indexOf(winnerIndex);
-      }
+      // Build wheel segments using the full participant list so the spin wheel
+      // matches the visible entries without sampling a subset.
+      const wheelSegments = participants.map((p) => ({ id: p.id!, name: p.name }));
+      const winnerWheelIndex = winnerIndex;
+      const wheelSize = participants.length;
 
       // Calculate spinResult based on wheel segments (not full participant list)
       const segAngle = 360 / wheelSize;
