@@ -1,104 +1,249 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { Server as SocketIOServer } from 'socket.io';
+import mongoose from 'mongoose';
 import { Round } from '../models/Round.js';
 import { Participant } from '../models/Participant.js';
 import { Winner } from '../models/Winner.js';
-import { IRound, IParticipant, SpinRequest, SpinResult, AdminState, ClientToServerEvents, ServerToClientEvents } from '../types/index.js';
+import { Session } from '../models/Session.js';
+import { IRound, IParticipant, SpinRequest, SpinResult, AdminState } from '../types/index.js';
 
-declare module 'fastify' {
-  interface FastifyInstance {
-    io: SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
-  }
-}
-
-// Default rounds data
-const defaultRounds: IRound[] = [
-  { roundNumber: 1, prize: '100,000 THB', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
-  { roundNumber: 2, prize: '30,000 THB', prizeAmount: 30000, totalWinners: 3, totalSpins: 3, remainingSpins: 3 },
-  { roundNumber: 3, prize: '20,000 THB', prizeAmount: 20000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
-  { roundNumber: 4, prize: '10,000 THB', prizeAmount: 10000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
-  { roundNumber: 5, prize: '5,000 THB', prizeAmount: 5000, totalWinners: 10, totalSpins: 10, remainingSpins: 10 },
-  { roundNumber: 6, prize: '2,000 THB', prizeAmount: 2000, totalWinners: 30, totalSpins: 30, remainingSpins: 30 },
+const defaultRounds = (sessionId: mongoose.Types.ObjectId): object[] => [
+  { sessionId, roundNumber: 1, prize: '100,000 THB', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
+  { sessionId, roundNumber: 2, prize: '30,000 THB', prizeAmount: 30000, totalWinners: 3, totalSpins: 3, remainingSpins: 3 },
+  { sessionId, roundNumber: 3, prize: '20,000 THB', prizeAmount: 20000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
+  { sessionId, roundNumber: 4, prize: '10,000 THB', prizeAmount: 10000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
+  { sessionId, roundNumber: 5, prize: '5,000 THB', prizeAmount: 5000, totalWinners: 10, totalSpins: 10, remainingSpins: 10 },
+  { sessionId, roundNumber: 6, prize: '2,000 THB', prizeAmount: 2000, totalWinners: 30, totalSpins: 30, remainingSpins: 30 },
 ];
 
 export default async function apiRoutes(fastify: FastifyInstance) {
-  // Get all rounds
-  fastify.get('/rounds', async (request: FastifyRequest, reply: FastifyReply) => {
+
+  // Broadcast latest state to all connected clients (viewers + admins)
+  const broadcastState = async (sessionId: string) => {
+    const participants = await Participant.find({ sessionId, hasWon: false }).sort({ name: 1 });
+    const winners = await Winner.find({ sessionId }).sort({ timestamp: 1 });
+    const rounds = await Round.find({ sessionId }).sort({ roundNumber: 1 });
+    const state: AdminState = { rounds, participants, winners, currentRound: 1, sessionId };
+    fastify.io.emit('state-update', state);
+  };
+
+  // ─── SESSION CRUD ────────────────────────────────────────────
+
+  fastify.get('/sessions', async (_req: FastifyRequest, reply: FastifyReply) => {
     try {
-      let rounds = await Round.find().sort({ roundNumber: 1 });
-      if (rounds.length === 0) {
-        // Initialize default rounds
-        await Round.insertMany(defaultRounds);
-        rounds = await Round.find().sort({ roundNumber: 1 });
-      }
+      const sessions = await Session.find().sort({ sessionNumber: 1 });
+      return reply.send(sessions);
+    } catch {
+      return reply.status(500).send({ error: 'Failed to fetch sessions' });
+    }
+  });
+
+  fastify.post('/sessions', async (request: FastifyRequest<{ Body: { name: string } }>, reply: FastifyReply) => {
+    try {
+      const { name } = request.body;
+      const last = await Session.findOne().sort({ sessionNumber: -1 });
+      const sessionNumber = last ? last.sessionNumber + 1 : 1;
+      const session = await Session.create({ sessionNumber, name });
+      await Round.insertMany(defaultRounds(session._id as mongoose.Types.ObjectId));
+      return reply.status(201).send(session);
+    } catch (err) {
+      console.error('Create session error:', err);
+      return reply.status(500).send({ error: 'Failed to create session' });
+    }
+  });
+
+  fastify.put('/sessions/:sessionId', async (request: FastifyRequest<{ Params: { sessionId: string }; Body: { name: string } }>, reply: FastifyReply) => {
+    try {
+      const session = await Session.findByIdAndUpdate(
+        request.params.sessionId,
+        { name: request.body.name },
+        { new: true }
+      );
+      if (!session) return reply.status(404).send({ error: 'Session not found' });
+      return reply.send(session);
+    } catch {
+      return reply.status(500).send({ error: 'Failed to update session' });
+    }
+  });
+
+  fastify.delete('/sessions/:sessionId', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+    try {
+      const { sessionId } = request.params;
+      await Session.findByIdAndDelete(sessionId);
+      await Round.deleteMany({ sessionId });
+      await Participant.deleteMany({ sessionId });
+      await Winner.deleteMany({ sessionId });
+      // Broadcast empty state so viewers clear their data
+      fastify.io.emit('state-update', { rounds: [], participants: [], winners: [], currentRound: 1 });
+      return reply.send({ message: 'Session and all related data deleted' });
+    } catch {
+      return reply.status(500).send({ error: 'Failed to delete session' });
+    }
+  });
+
+  // ─── ROUNDS ──────────────────────────────────────────────────
+
+  fastify.get('/sessions/:sessionId/rounds', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+    try {
+      const rounds = await Round.find({ sessionId: request.params.sessionId }).sort({ roundNumber: 1 });
       return reply.send(rounds);
-    } catch (error) {
+    } catch {
       return reply.status(500).send({ error: 'Failed to fetch rounds' });
     }
   });
 
-  // Get all participants
-  fastify.get('/participants', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/sessions/:sessionId/rounds', async (request: FastifyRequest<{ Params: { sessionId: string }; Body: IRound }>, reply: FastifyReply) => {
     try {
-      const participants = await Participant.find({ hasWon: false }).sort({ name: 1 });
+      const { sessionId } = request.params;
+      const body = request.body;
+      // Use provided roundNumber, or auto-generate next
+      let roundNumber = body.roundNumber;
+      if (!roundNumber || roundNumber <= 0) {
+        const last = await Round.findOne({ sessionId }).sort({ roundNumber: -1 });
+        roundNumber = last ? last.roundNumber + 1 : 1;
+      }
+      // Check duplicate
+      const existing = await Round.findOne({ sessionId, roundNumber });
+      if (existing) return reply.status(400).send({ error: `Round #${roundNumber} already exists` });
+      const round = await Round.create({
+        sessionId,
+        roundNumber,
+        prize: body.prize,
+        prizeAmount: body.prizeAmount,
+        totalWinners: body.totalSpins,
+        totalSpins: body.totalSpins,
+        remainingSpins: body.totalSpins,
+      });
+      await broadcastState(sessionId);
+      return reply.status(201).send(round);
+    } catch {
+      return reply.status(500).send({ error: 'Failed to create round' });
+    }
+  });
+
+  fastify.put('/sessions/:sessionId/rounds/:roundNumber', async (request: FastifyRequest<{ Params: { sessionId: string; roundNumber: string }; Body: Partial<IRound> }>, reply: FastifyReply) => {
+    try {
+      const existing = await Round.findOne({
+        sessionId: request.params.sessionId,
+        roundNumber: parseInt(request.params.roundNumber, 10),
+      });
+      if (!existing) return reply.status(404).send({ error: 'Round not found' });
+      const spinsUsed = existing.totalSpins - existing.remainingSpins;
+      const newTotalSpins = request.body.totalSpins ?? existing.totalSpins;
+      const newRemainingSpins = Math.max(0, newTotalSpins - spinsUsed);
+      const round = await Round.findOneAndUpdate(
+        { sessionId: request.params.sessionId, roundNumber: parseInt(request.params.roundNumber, 10) },
+        { ...request.body, remainingSpins: newRemainingSpins },
+        { new: true }
+      );
+      await broadcastState(request.params.sessionId);
+      return reply.send(round);
+    } catch {
+      return reply.status(500).send({ error: 'Failed to update round' });
+    }
+  });
+
+  fastify.delete('/sessions/:sessionId/rounds/:roundNumber', async (request: FastifyRequest<{ Params: { sessionId: string; roundNumber: string } }>, reply: FastifyReply) => {
+    try {
+      const round = await Round.findOneAndDelete({
+        sessionId: request.params.sessionId,
+        roundNumber: parseInt(request.params.roundNumber, 10),
+      });
+      if (!round) return reply.status(404).send({ error: 'Round not found' });
+      await broadcastState(request.params.sessionId);
+      return reply.send({ message: 'Round deleted' });
+    } catch {
+      return reply.status(500).send({ error: 'Failed to delete round' });
+    }
+  });
+
+  // ─── PARTICIPANTS ─────────────────────────────────────────────
+
+  fastify.get('/sessions/:sessionId/participants', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+    try {
+      const participants = await Participant.find({ sessionId: request.params.sessionId, hasWon: false }).sort({ name: 1 });
       return reply.send(participants);
-    } catch (error) {
+    } catch {
       return reply.status(500).send({ error: 'Failed to fetch participants' });
     }
   });
 
-  // Add participants
-  fastify.post('/participants', async (request: FastifyRequest<{ Body: IParticipant[] }>, reply: FastifyReply) => {
+  fastify.post('/sessions/:sessionId/participants', async (request: FastifyRequest<{ Params: { sessionId: string }; Body: IParticipant[] }>, reply: FastifyReply) => {
     try {
-      const participants = request.body;
-      await Participant.deleteMany({}); // Clear existing
-      const result = await Participant.insertMany(participants);
+      const { sessionId } = request.params;
+      await Participant.deleteMany({ sessionId });
+      const docs = request.body.map((p) => ({ ...p, sessionId }));
+      const result = await Participant.insertMany(docs);
+      await broadcastState(sessionId);
       return reply.send(result);
-    } catch (error) {
-      return reply.status(500).send({ error: 'Failed to add participants' });
+    } catch {
+      return reply.status(500).send({ error: 'Failed to upload participants' });
     }
   });
 
-  // Get winners
-  fastify.get('/winners', async (request: FastifyRequest, reply: FastifyReply) => {
+  // ─── WINNERS ──────────────────────────────────────────────────
+
+  fastify.get('/sessions/:sessionId/winners', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
     try {
-      const winners = await Winner.find().sort({ roundNumber: 1, timestamp: -1 });
+      const winners = await Winner.find({ sessionId: request.params.sessionId }).sort({ timestamp: 1 });
       return reply.send(winners);
-    } catch (error) {
+    } catch {
       return reply.status(500).send({ error: 'Failed to fetch winners' });
     }
   });
 
-  // Spin wheel
-  fastify.post('/spin', async (request: FastifyRequest<{ Body: SpinRequest }>, reply: FastifyReply) => {
+  // ─── SPIN ─────────────────────────────────────────────────────
+
+  fastify.post('/sessions/:sessionId/spin', async (request: FastifyRequest<{ Params: { sessionId: string }; Body: SpinRequest }>, reply: FastifyReply) => {
+    // Prevent concurrent spins
+    if (fastify.getSpinLock()) {
+      return reply.status(429).send({ error: 'A spin is already in progress. Wait for it to finish.' });
+    }
+    fastify.setSpinLock(true);
+
     try {
+      const { sessionId } = request.params;
       const { roundNumber } = request.body;
 
-      // Get round info
-      const round = await Round.findOne({ roundNumber });
-      if (!round) {
-        return reply.status(404).send({ error: 'Round not found' });
+      const round = await Round.findOne({ sessionId, roundNumber });
+      if (!round) { fastify.setSpinLock(false); return reply.status(404).send({ error: 'Round not found' }); }
+      if (round.remainingSpins <= 0) { fastify.setSpinLock(false); return reply.status(400).send({ error: 'No remaining spins' }); }
+
+      // MUST sort by name — same order as state-update sends to clients
+      const participants = await Participant.find({ sessionId, hasWon: false }).sort({ name: 1 });
+      if (participants.length === 0) { fastify.setSpinLock(false); return reply.status(400).send({ error: 'No participants available' }); }
+
+      const winnerIndex = Math.floor(Math.random() * participants.length);
+      const winner = participants[winnerIndex];
+
+      // Build wheel segments (max 30, must include winner)
+      const MAX_WHEEL = 30;
+      const wheelSize = Math.min(MAX_WHEEL, participants.length);
+      let wheelSegments: { id: string; name: string }[];
+      let winnerWheelIndex: number;
+
+      if (participants.length <= MAX_WHEEL) {
+        wheelSegments = participants.map(p => ({ id: p.id!, name: p.name }));
+        winnerWheelIndex = winnerIndex;
+      } else {
+        // Pick random subset including winner
+        const indices = new Set<number>();
+        indices.add(winnerIndex);
+        while (indices.size < wheelSize) {
+          indices.add(Math.floor(Math.random() * participants.length));
+        }
+        const sortedIndices = Array.from(indices).sort((a, b) => a - b);
+        wheelSegments = sortedIndices.map(i => ({ id: participants[i].id!, name: participants[i].name }));
+        winnerWheelIndex = sortedIndices.indexOf(winnerIndex);
       }
 
-      if (round.remainingSpins <= 0) {
-        return reply.status(400).send({ error: 'No remaining spins for this round' });
-      }
+      // Calculate spinResult based on wheel segments (not full participant list)
+      const segAngle = 360 / wheelSize;
+      const segCenter = winnerWheelIndex * segAngle + segAngle / 2;
+      const randomOffset = (Math.random() - 0.5) * segAngle * 0.6;
+      const spinResult = ((270 - segCenter + randomOffset) % 360 + 360) % 360;
 
-      // Get available participants
-      const participants = await Participant.find({ hasWon: false });
-      if (participants.length === 0) {
-        return reply.status(400).send({ error: 'No participants available' });
-      }
-
-      // Random select winner
-      const randomIndex = Math.floor(Math.random() * participants.length);
-      const winner = participants[randomIndex];
-
-      // Generate spin result (0-360 degrees)
-      const spinResult = Math.floor(Math.random() * 360);
-
-      // Create winner record
-      const winnerRecord = new Winner({
+      const winnerRecord = await Winner.create({
+        sessionId,
         roundNumber,
         participantId: winner.id,
         participantName: winner.name,
@@ -106,75 +251,102 @@ export default async function apiRoutes(fastify: FastifyInstance) {
         prizeAmount: round.prizeAmount,
         spinResult,
       });
-      await winnerRecord.save();
 
-      // Update participant
       winner.hasWon = true;
       winner.wonRound = roundNumber;
       winner.wonPrize = round.prize;
       await winner.save();
 
-      // Update round
       round.remainingSpins -= 1;
       await round.save();
 
-      // Emit to all clients
       const io = fastify.io;
-      io.emit('spin-start', { roundNumber });
-      
+      fastify.setSpinActive(true);
+
       const result: SpinResult = {
         winner: {
+          sessionId,
           roundNumber,
           participantId: winner.id,
           participantName: winner.name,
           prize: round.prize,
           prizeAmount: round.prizeAmount,
           spinResult,
-          timestamp: new Date(),
+          timestamp: winnerRecord.timestamp,
         },
-        remainingParticipants: await Participant.countDocuments({ hasWon: false }),
+        remainingParticipants: await Participant.countDocuments({ sessionId, hasWon: false }),
         remainingSpins: round.remainingSpins,
+        wheelSegments,
+        winnerWheelIndex,
       };
 
-      io.emit('spin-result', result);
+      // Emit spin-start first, then spin-result after 150ms delay
+      // so clients can set up wheelSegments before animation starts
+      io.emit('spin-start', { roundNumber, wheelSegments });
+
+      setTimeout(() => {
+        io.emit('spin-result', result);
+      }, 150);
 
       return reply.send(result);
-    } catch (error) {
+    } catch {
+      fastify.setSpinLock(false);
       return reply.status(500).send({ error: 'Failed to spin' });
     }
   });
 
-  // Get admin state
-  fastify.get('/admin-state', async (request: FastifyRequest, reply: FastifyReply) => {
+  // ─── ADMIN STATE ──────────────────────────────────────────────
+
+  fastify.get('/sessions/:sessionId/admin-state', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
     try {
-      const rounds = await Round.find().sort({ roundNumber: 1 });
-      const participants = await Participant.find({ hasWon: false });
-      const winners = await Winner.find().sort({ roundNumber: 1, timestamp: -1 });
-
-      const state: AdminState = {
-        rounds: rounds.length > 0 ? rounds : defaultRounds,
-        participants,
-        winners,
-        currentRound: 1,
-      };
-
+      const { sessionId } = request.params;
+      const rounds = await Round.find({ sessionId }).sort({ roundNumber: 1 });
+      const participants = await Participant.find({ sessionId, hasWon: false });
+      const winners = await Winner.find({ sessionId }).sort({ timestamp: 1 });
+      const state: AdminState = { rounds, participants, winners, currentRound: 1, sessionId };
       return reply.send(state);
-    } catch (error) {
+    } catch {
       return reply.status(500).send({ error: 'Failed to fetch admin state' });
     }
   });
 
-  // Reset all data
-  fastify.post('/reset', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await Round.deleteMany({});
-      await Participant.deleteMany({});
-      await Winner.deleteMany({});
-      await Round.insertMany(defaultRounds);
+  // ─── RESET ────────────────────────────────────────────────────
 
-      return reply.send({ message: 'Data reset successfully' });
-    } catch (error) {
-      return reply.status(500).send({ error: 'Failed to reset data' });
+  fastify.post('/sessions/:sessionId/reset', async (request: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+    try {
+      const { sessionId } = request.params;
+      await Round.deleteMany({ sessionId });
+      await Participant.deleteMany({ sessionId });
+      await Winner.deleteMany({ sessionId });
+      await Round.insertMany(defaultRounds(new mongoose.Types.ObjectId(sessionId)));
+      await broadcastState(sessionId);
+      return reply.send({ message: 'Session data reset successfully' });
+    } catch {
+      return reply.status(500).send({ error: 'Failed to reset session' });
     }
+  });
+
+  // ─── LEGACY fallbacks — use latest session ────────────────────
+  const latestSessionId = async (): Promise<string | null> => {
+    const s = await Session.findOne().sort({ sessionNumber: -1 });
+    return s ? String(s._id) : null;
+  };
+
+  fastify.get('/rounds', async (_req, reply) => {
+    const sid = await latestSessionId();
+    if (!sid) return reply.send([]);
+    return reply.send(await Round.find({ sessionId: sid }).sort({ roundNumber: 1 }));
+  });
+
+  fastify.get('/participants', async (_req, reply) => {
+    const sid = await latestSessionId();
+    if (!sid) return reply.send([]);
+    return reply.send(await Participant.find({ sessionId: sid, hasWon: false }).sort({ name: 1 }));
+  });
+
+  fastify.get('/winners', async (_req, reply) => {
+    const sid = await latestSessionId();
+    if (!sid) return reply.send([]);
+    return reply.send(await Winner.find({ sessionId: sid }).sort({ timestamp: 1 }));
   });
 }

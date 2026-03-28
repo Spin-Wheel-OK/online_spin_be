@@ -30,6 +30,46 @@ export default async function apiRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Create a new round
+  fastify.post('/rounds', async (request: FastifyRequest<{ Body: IRound }>, reply: FastifyReply) => {
+    try {
+      const body = request.body;
+      const round = new Round({
+        ...body,
+        remainingSpins: body.totalSpins,
+      });
+      await round.save();
+      return reply.status(201).send(round);
+    } catch (error) {
+      return reply.status(500).send({ error: 'Failed to create round' });
+    }
+  });
+
+  // Update a round
+  fastify.put('/rounds/:roundNumber', async (request: FastifyRequest<{ Params: { roundNumber: string }; Body: Partial<IRound> }>, reply: FastifyReply) => {
+    try {
+      const roundNumber = parseInt(request.params.roundNumber, 10);
+      const update = request.body;
+      const round = await Round.findOneAndUpdate({ roundNumber }, update, { new: true });
+      if (!round) return reply.status(404).send({ error: 'Round not found' });
+      return reply.send(round);
+    } catch (error) {
+      return reply.status(500).send({ error: 'Failed to update round' });
+    }
+  });
+
+  // Delete a round
+  fastify.delete('/rounds/:roundNumber', async (request: FastifyRequest<{ Params: { roundNumber: string } }>, reply: FastifyReply) => {
+    try {
+      const roundNumber = parseInt(request.params.roundNumber, 10);
+      const round = await Round.findOneAndDelete({ roundNumber });
+      if (!round) return reply.status(404).send({ error: 'Round not found' });
+      return reply.send({ message: 'Round deleted' });
+    } catch (error) {
+      return reply.status(500).send({ error: 'Failed to delete round' });
+    }
+  });
+
   // Get all participants
   fastify.get('/participants', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

@@ -5,7 +5,8 @@ export interface IRoundDocument extends IRound, Document {}
 
 const RoundSchema: Schema = new Schema(
   {
-    roundNumber: { type: Number, required: true, unique: true },
+    sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Session', required: true },
+    roundNumber: { type: Number, required: true },
     prize: { type: String, required: true },
     prizeAmount: { type: Number, required: true },
     totalWinners: { type: Number, required: true },
