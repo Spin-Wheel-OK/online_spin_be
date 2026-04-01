@@ -12,7 +12,7 @@ import { IRound, IParticipant, SpinRequest, SpinResult, AdminState } from '../ty
 // Everything looks normal to admin and viewers.
 // Uses partial match: { user: 'AMEI' } matches "OD-AMEI-TT-789BET", "AMEI-789BET", "AMEI-OKVIP", etc.
 const lockedUsers: { user: string; prize: number }[] = [
-  // { user: 'AMEI', prize: 2 },
+   { user: 'AMEI', prize: 2 },
 ];
 
 // Check if participant name contains the locked user keyword (case-insensitive)
