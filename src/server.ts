@@ -67,20 +67,13 @@ io.on('connection', (socket) => {
     console.log('Client disconnected:', socket.id);
   });
 
-  // Join admin room
-  socket.on('join-admin', () => {
-    socket.join('admin-room');
-    socket.data.role = 'admin';
-    console.log('Admin joined:', socket.id);
-  });
-
   // Join viewer room — send current state immediately
   socket.on('join-viewer', async () => {
     socket.join('viewer-room');
     socket.data.role = 'viewer';
     console.log('Viewer joined:', socket.id);
 
-    // Send current session state
+    // Send current session state + round selection together
     if (currentSessionId) {
       try {
         const [participants, winners, rounds] = await Promise.all([
@@ -93,7 +86,31 @@ io.on('connection', (socket) => {
         console.error('join-viewer state error:', err);
       }
     }
-    // Send current round selection
+    // Always send round selection if available (even without session)
+    if (currentRoundInfo) {
+      socket.emit('round-selected', currentRoundInfo);
+    }
+  });
+
+  // Join admin room — send current state so admin can resume
+  socket.on('join-admin', async () => {
+    socket.join('admin-room');
+    socket.data.role = 'admin';
+    console.log('Admin joined:', socket.id);
+
+    // Send current session state so admin resumes where they left off
+    if (currentSessionId) {
+      try {
+        const [participants, winners, rounds] = await Promise.all([
+          Participant.find({ sessionId: currentSessionId, hasWon: false }).sort({ name: 1 }),
+          Winner.find({ sessionId: currentSessionId }).sort({ timestamp: 1 }),
+          Round.find({ sessionId: currentSessionId }).sort({ roundNumber: 1 }),
+        ]);
+        socket.emit('state-update', { rounds, participants, winners, currentRound: 1, sessionId: currentSessionId });
+      } catch (err) {
+        console.error('join-admin state error:', err);
+      }
+    }
     if (currentRoundInfo) {
       socket.emit('round-selected', currentRoundInfo);
     }
