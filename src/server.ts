@@ -58,6 +58,7 @@ let currentRoundInfo: { roundNumber: number; prize: string; prizeAmount: number 
 let spinActive = false; // Prevents duplicate spin-ended broadcasts
 let spinLock = false;   // Prevents concurrent spins
 let spinLockTimer: ReturnType<typeof setTimeout> | null = null;
+let welcomeEnabled = false; // Track welcome mode state for new viewers
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -89,6 +90,10 @@ io.on('connection', (socket) => {
     // Always send round selection if available (even without session)
     if (currentRoundInfo) {
       socket.emit('round-selected', currentRoundInfo);
+    }
+    // Send current welcome mode state
+    if (welcomeEnabled) {
+      socket.emit('welcome-mode', { enabled: true });
     }
   });
 
@@ -172,6 +177,13 @@ io.on('connection', (socket) => {
 
   // NOTE: spin-wheel via socket REMOVED — use HTTP POST /api/sessions/:id/spin instead
   // The HTTP path correctly handles sessionId, wheel segments, spin lock, etc.
+
+  // Welcome mode toggle — track state + broadcast to all viewers
+  socket.on('welcome-mode', (data) => {
+    welcomeEnabled = data.enabled;
+    console.log('Welcome mode:', data.enabled);
+    io.to('viewer-room').emit('welcome-mode', data);
+  });
 });
 
 // Register CORS (must be before routes)

@@ -60,6 +60,11 @@ io.on('connection', (socket) => {
     socket.data.role = 'viewer';
     console.log('Viewer joined:', socket.id);
   });
+
+  // Welcome mode toggle — broadcast to all viewers
+  socket.on('welcome-mode', (data) => {
+    io.to('viewer-room').emit('welcome-mode', data);
+  });
 });
 
 // Register API routes

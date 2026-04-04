@@ -51,6 +51,7 @@ export interface ClientToServerEvents {
   'spin-wheel': (data: SpinRequest) => void;
   'update-participants': (participants: IParticipant[]) => void;
   'update-rounds': (rounds: IRound[]) => void;
+  'welcome-mode': (data: { enabled: boolean }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -58,6 +59,7 @@ export interface ServerToClientEvents {
   'spin-result': (data: SpinResult) => void;
   'state-update': (data: AdminState) => void;
   'error': (message: string) => void;
+  'welcome-mode': (data: { enabled: boolean }) => void;
 }
 
 export interface SocketData {
