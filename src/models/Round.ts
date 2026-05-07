@@ -16,4 +16,8 @@ const RoundSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+// Hot queries: Round.find({ sessionId }).sort({ roundNumber: 1 })
+//               Round.findOne({ sessionId, roundNumber })
+RoundSchema.index({ sessionId: 1, roundNumber: 1 }, { unique: true });
+
 export const Round = mongoose.model<IRoundDocument>('Round', RoundSchema);

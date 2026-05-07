@@ -19,12 +19,12 @@ const isLockedUser = (participantName: string, lockKeyword: string): boolean => 
 };
 
 const defaultRounds = (sessionId: mongoose.Types.ObjectId): object[] => [
-  { sessionId, roundNumber: 1, prize: '100,000 THB', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
-  { sessionId, roundNumber: 2, prize: '30,000 THB', prizeAmount: 30000, totalWinners: 3, totalSpins: 3, remainingSpins: 3 },
-  { sessionId, roundNumber: 3, prize: '20,000 THB', prizeAmount: 20000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
-  { sessionId, roundNumber: 4, prize: '10,000 THB', prizeAmount: 10000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
-  { sessionId, roundNumber: 5, prize: '5,000 THB', prizeAmount: 5000, totalWinners: 10, totalSpins: 10, remainingSpins: 10 },
-  { sessionId, roundNumber: 6, prize: '2,000 THB', prizeAmount: 2000, totalWinners: 30, totalSpins: 30, remainingSpins: 30 },
+  { sessionId, roundNumber: 1, prize: '100,000', prizeAmount: 100000, totalWinners: 1, totalSpins: 1, remainingSpins: 1 },
+  { sessionId, roundNumber: 2, prize: '30,000', prizeAmount: 30000, totalWinners: 3, totalSpins: 3, remainingSpins: 3 },
+  { sessionId, roundNumber: 3, prize: '20,000', prizeAmount: 20000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
+  { sessionId, roundNumber: 4, prize: '10,000', prizeAmount: 10000, totalWinners: 5, totalSpins: 5, remainingSpins: 5 },
+  { sessionId, roundNumber: 5, prize: '5,000', prizeAmount: 5000, totalWinners: 10, totalSpins: 10, remainingSpins: 10 },
+  { sessionId, roundNumber: 6, prize: '2,000', prizeAmount: 2000, totalWinners: 30, totalSpins: 30, remainingSpins: 30 },
 ];
 
 export default async function apiRoutes(fastify: FastifyInstance) {

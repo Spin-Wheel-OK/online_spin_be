@@ -17,4 +17,7 @@ const WinnerSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+// Hot query: Winner.find({ sessionId }).sort({ timestamp: 1 })
+WinnerSchema.index({ sessionId: 1, timestamp: 1 });
+
 export const Winner = mongoose.model<IWinnerDocument>('Winner', WinnerSchema);

@@ -15,4 +15,7 @@ const ParticipantSchema: Schema = new Schema(
   { timestamps: true }
 );
 
+// Compound index for the hot query: Participant.find({ sessionId, hasWon: false }).sort({ name: 1 })
+ParticipantSchema.index({ sessionId: 1, hasWon: 1, name: 1 });
+
 export const Participant = mongoose.model<IParticipantDocument>('Participant', ParticipantSchema);
