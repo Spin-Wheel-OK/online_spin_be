@@ -10,7 +10,7 @@ import { IRound, IParticipant, SpinRequest, SpinResult, AdminState } from '../ty
 // When spinning the matching round, this user will ALWAYS win.
 // In other rounds, this user is excluded from the random pool (protected).
 // Everything looks normal to admin and viewers.
-// Uses partial match: { user: 'AMEI' } matches "OD-AMEI-TT-789BET", "AMEI-789BET", "AMEI-OKVIP", etc.
+// Uses partial match: { user: 'AMEI' } matches "OD-AMEI-TT-789BET", "AMEI-789BET", "AMEI-PKONE", etc.
 const lockedUsers: { user: string; prize: number }[] = [];
 
 // Check if participant name contains the locked user keyword (case-insensitive)
