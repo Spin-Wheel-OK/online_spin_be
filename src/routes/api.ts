@@ -300,13 +300,26 @@ export default async function apiRoutes(fastify: FastifyInstance) {
         winnerWheelIndex,
       };
 
-      // Emit spin-start first, then spin-result after 150ms delay
-      // so clients can set up wheelSegments before animation starts
       io.emit('spin-start', { roundNumber, wheelSegments });
 
       setTimeout(() => {
         io.emit('spin-result', result);
       }, 150);
+
+      // Server-authoritative spin end — fires once for everyone after the
+      // fixed FE animation duration (20s) + settle (800ms) + buffer.
+      // Prevents fast viewers from triggering early winner reveals on slow ones.
+      setTimeout(async () => {
+        if (!fastify.getSpinActive()) return;
+        fastify.setSpinActive(false);
+        fastify.setSpinLock(false);
+        io.emit('spin-ended');
+        try {
+          await broadcastState(sessionId);
+        } catch (err) {
+          console.error('spin-ended broadcastState error:', err);
+        }
+      }, 21000);
 
       return reply.send(result);
     } catch {

@@ -31,6 +31,7 @@ fastify.decorate('io', io);
 
 // Expose spinActive setter for routes
 fastify.decorate('setSpinActive', (val: boolean) => { spinActive = val; });
+fastify.decorate('getSpinActive', () => spinActive);
 fastify.decorate('getSpinLock', () => spinLock);
 fastify.decorate('setSpinLock', (val: boolean) => {
   spinLock = val;
@@ -124,29 +125,6 @@ io.on('connection', (socket) => {
   // Admin dismisses winner modal — broadcast to all clients
   socket.on('dismiss-winner', () => {
     io.emit('dismiss-winner');
-  });
-
-  // Viewer signals spin animation ended — only process the FIRST one per spin
-  socket.on('spin-ended', async () => {
-    if (!spinActive) return;
-    spinActive = false;
-    spinLock = false;
-    if (spinLockTimer) { clearTimeout(spinLockTimer); spinLockTimer = null; }
-    io.emit('spin-ended');
-
-    // Broadcast updated state so winner list refreshes on all clients
-    if (currentSessionId) {
-      try {
-        const [participants, winners, rounds] = await Promise.all([
-          Participant.find({ sessionId: currentSessionId, hasWon: false }).sort({ name: 1 }),
-          Winner.find({ sessionId: currentSessionId }).sort({ timestamp: 1 }),
-          Round.find({ sessionId: currentSessionId }).sort({ roundNumber: 1 }),
-        ]);
-        io.emit('state-update', { rounds, participants, winners, currentRound: 1, sessionId: currentSessionId });
-      } catch (err) {
-        console.error('spin-ended broadcastState error:', err);
-      }
-    }
   });
 
   // Admin selects a session — broadcast session state to all viewers

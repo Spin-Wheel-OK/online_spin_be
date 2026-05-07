@@ -5,6 +5,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     io: SocketIOServer<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
     setSpinActive: (val: boolean) => void;
+    getSpinActive: () => boolean;
     getSpinLock: () => boolean;
     setSpinLock: (val: boolean) => void;
   }
@@ -78,7 +79,6 @@ export interface ClientToServerEvents {
   'update-rounds': (rounds: IRound[]) => void;
   'select-round': (data: { roundNumber: number; prize: string; prizeAmount: number }) => void;
   'select-session': (data: { sessionId: string | null }) => void;
-  'spin-ended': () => void;
   'dismiss-winner': () => void;
   'welcome-mode': (data: { enabled: boolean }) => void;
 }
